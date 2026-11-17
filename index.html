@@ -1,0 +1,1564 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>深夜歸途 - Midnight Walk Home</title>
+    <!-- 引入復古像素字體與繁體中文支援字體 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Noto+Sans+TC:wght@500;700;900&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 全域像素風格設定 */
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        body {
+            background-color: #090a0f;
+            color: #e2e8f0;
+            font-family: 'DotGothic16', 'Noto Sans TC', monospace;
+            overflow: hidden;
+            margin: 0;
+            padding: 0;
+            touch-action: manipulation;
+        }
+        /* Canvas 保持銳利像素渲染 */
+        canvas {
+            image-rendering: -moz-crisp-edges;
+            image-rendering: -webkit-crisp-edges;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        /* 復古 CRT 掃描線濾鏡效果 */
+        .crt-overlay {
+            background: linear-gradient(
+                rgba(18, 16, 16, 0) 50%, 
+                rgba(0, 0, 0, 0.25) 50%
+            ), linear-gradient(
+                90deg,
+                rgba(255, 0, 0, 0.03),
+                rgba(0, 255, 0, 0.01),
+                rgba(0, 0, 255, 0.03)
+            );
+            background-size: 100% 3px, 6px 100%;
+            pointer-events: none;
+        }
+        /* 追逐模式紅色心跳暗角 */
+        .danger-vignette {
+            box-shadow: inset 0 0 80px rgba(220, 20, 40, 0.75);
+            animation: pulseVignette 0.7s infinite alternate;
+            pointer-events: none;
+        }
+        @keyframes pulseVignette {
+            from { box-shadow: inset 0 0 50px rgba(180, 10, 30, 0.45); }
+            to { box-shadow: inset 0 0 110px rgba(240, 20, 40, 0.85); }
+        }
+        /* 畫面震動效果 */
+        .shake-screen {
+            animation: screenShake 0.35s cubic-bezier(.36,.07,.19,.97) both;
+        }
+        @keyframes screenShake {
+            10%, 90% { transform: translate3d(-3px, 1px, 0); }
+            20%, 80% { transform: translate3d(5px, -2px, 0); }
+            30%, 50%, 70% { transform: translate3d(-6px, 2px, 0); }
+            40%, 60% { transform: translate3d(6px, -1px, 0); }
+        }
+        /* 像素風邊框與按鈕 */
+        .pixel-box {
+            background: rgba(15, 19, 30, 0.94);
+            border: 3px solid #64748b;
+            box-shadow: 0 0 0 3px #090a0f, inset 0 0 0 2px #334155;
+        }
+        .pixel-box-danger {
+            background: rgba(35, 8, 14, 0.96);
+            border: 3px solid #ef4444;
+            box-shadow: 0 0 15px rgba(239, 68, 68, 0.6), inset 0 0 0 2px #7f1d1d;
+        }
+        .pixel-btn {
+            background: #1e293b;
+            border: 2px solid #94a3b8;
+            box-shadow: 0 4px 0 #0f172a;
+            transition: transform 0.08s, background-color 0.15s;
+        }
+        .pixel-btn:hover:not(:disabled) {
+            background: #334155;
+            border-color: #f8fafc;
+        }
+        .pixel-btn:active:not(:disabled) {
+            transform: translateY(3px);
+            box-shadow: 0 1px 0 #0f172a;
+        }
+        .pixel-btn-red {
+            background: #7f1d1d;
+            border: 2px solid #f87171;
+            box-shadow: 0 4px 0 #450a0a;
+        }
+        .pixel-btn-red:hover:not(:disabled) {
+            background: #991b1b;
+            border-color: #fecaca;
+        }
+        .pixel-btn-red:active:not(:disabled) {
+            transform: translateY(3px);
+            box-shadow: 0 1px 0 #450a0a;
+        }
+        /* 閃爍提示文字 */
+        .blink-text {
+            animation: blinker 1s linear infinite;
+        }
+        @keyframes blinker {
+            50% { opacity: 0.25; }
+        }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col items-center justify-center relative select-none">
+
+    <!-- 遊戲主容器 -->
+    <div id="gameContainer" class="relative w-full h-full max-w-5xl max-h-[720px] flex flex-col bg-slate-950 overflow-hidden shadow-2xl border-y sm:border-2 border-slate-800">
+        
+        <!-- 頂部狀態與距離進度條 (追逐與同行模式顯示) -->
+        <div id="hudTop" class="hidden absolute top-0 left-0 right-0 z-20 p-3 sm:p-4 bg-gradient-to-b from-black/85 to-transparent">
+            <div class="flex justify-between items-center text-xs sm:text-sm mb-1.5 px-1">
+                <span id="phaseBadge" class="px-2 py-0.5 rounded bg-slate-800 border border-slate-600 text-slate-200 font-bold tracking-wider">
+                    同行中...
+                </span>
+                <span id="distanceText" class="text-amber-300 font-bold tracking-widest">
+                    距離安全屋：1000m
+                </span>
+                <button id="muteBtn" class="px-2 py-0.5 bg-slate-800/80 border border-slate-600 rounded text-slate-300 hover:text-white text-xs">
+                    🔊 音效：開
+                </button>
+            </div>
+            
+            <!-- 進度條軌道 -->
+            <div class="relative w-full h-6 bg-slate-900/90 border-2 border-slate-600 rounded-sm overflow-visible flex items-center px-2">
+                <!-- 軌道刻度 -->
+                <div class="w-full h-1 bg-slate-700 relative">
+                    <div id="progressFill" class="h-full bg-amber-500/40 w-0"></div>
+                </div>
+                <!-- 追擊者標記 (男角) -->
+                <div id="hudPursuer" class="absolute -top-2.5 transition-all duration-75 flex flex-col items-center" style="left: 2%;">
+                    <span class="text-sm sm:text-base drop-shadow">🔪</span>
+                </div>
+                <!-- 玩家標記 (女角) -->
+                <div id="hudPlayer" class="absolute -top-2.5 transition-all duration-75 flex flex-col items-center" style="left: 14%;">
+                    <span class="text-sm sm:text-base drop-shadow">🏃‍♀️</span>
+                </div>
+                <!-- 終點安全屋標記 -->
+                <div class="absolute right-1 -top-2.5 flex flex-col items-center">
+                    <span class="text-sm sm:text-base drop-shadow">🏠</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 遊戲主要 Canvas 畫布 -->
+        <div class="relative flex-1 w-full h-full overflow-hidden">
+            <canvas id="gameCanvas"></canvas>
+            <!-- CRT 掃描線覆蓋 -->
+            <div class="crt-overlay absolute inset-0 z-10"></div>
+            <!-- 追殺模式紅色危險暗角 -->
+            <div id="dangerOverlay" class="hidden danger-vignette absolute inset-0 z-10"></div>
+
+            <!-- 同行模式：半途掙脫提示浮層 -->
+            <div id="complyPrompt" class="hidden absolute inset-x-0 top-1/4 z-20 flex flex-col items-center justify-center pointer-events-none px-4">
+                <div class="pixel-box px-4 py-3 sm:px-6 sm:py-4 rounded text-center max-w-md pointer-events-auto border-amber-500/80">
+                    <p class="text-amber-300 text-sm sm:text-base font-bold mb-1">⚠️ 他的手越握越緊，方向似乎不是往你家...</p>
+                    <p class="text-slate-300 text-xs sm:text-sm mb-3">要趁現在甩開他逃跑，還是繼續順從？</p>
+                    <button id="struggleActionBtn" class="pixel-btn-red px-5 py-2.5 rounded text-white font-bold text-sm sm:text-base tracking-wider blink-text w-full">
+                        💥 猛力掙脫並逃跑！ [空白鍵 / 點擊]
+                    </button>
+                </div>
+            </div>
+
+            <!-- 標題畫面 (Start Screen) -->
+            <div id="startScreen" class="absolute inset-0 z-30 bg-slate-950/85 flex flex-col items-center justify-center p-6 text-center">
+                <div class="mb-2 text-xs sm:text-sm tracking-[0.3em] text-red-400 font-bold">16-BIT PIXEL HORROR SURVIVAL</div>
+                <h1 class="text-4xl sm:text-6xl font-black text-slate-100 tracking-wider mb-3 drop-shadow-[0_4px_0_rgba(185,28,28,0.8)]">
+                    深夜歸途
+                </h1>
+                <p class="text-slate-400 text-sm sm:text-base tracking-widest mb-6">MIDNIGHT WALK HOME</p>
+                
+                <div class="pixel-box p-4 sm:p-5 rounded max-w-md w-full text-left text-xs sm:text-sm text-slate-300 space-y-2 mb-6 leading-relaxed">
+                    <p class="text-amber-300 font-bold">【故事背景】</p>
+                    <p>凌晨 1:15，空蕩的街燈下，一個眼神陰鬱的男生攔住了你的去路，言語中充滿偏激與控制慾……</p>
+                    <p class="text-amber-300 font-bold pt-1">【生存指南】</p>
+                    <ul class="list-disc list-inside space-y-1 text-slate-300">
+                        <li><span class="text-white font-bold">對話抉擇</span>：拒絕會激怒他；假意順從則需在半途尋找時機掙脫。</li>
+                        <li><span class="text-white font-bold">跳躍閃避</span>：按 <kbd class="px-1.5 py-0.5 bg-slate-800 border border-slate-600 rounded text-amber-200">空白鍵</kbd> 或 <kbd class="px-1.5 py-0.5 bg-slate-800 border border-slate-600 rounded text-amber-200">↑</kbd> 越過水坑與矮牆。</li>
+                        <li><span class="text-white font-bold">推倒路障</span>：靠近垃圾桶/木箱時按 <kbd class="px-1.5 py-0.5 bg-slate-800 border border-slate-600 rounded text-amber-200">E</kbd> 或 <kbd class="px-1.5 py-0.5 bg-slate-800 border border-slate-600 rounded text-amber-200">↓</kbd> 推倒絆住追兵！</li>
+                    </ul>
+                </div>
+
+                <button id="startBtn" class="pixel-btn-red px-8 py-3.5 rounded text-lg sm:text-xl font-bold text-white tracking-widest cursor-pointer">
+                    ▶ 踏入深夜街道
+                </button>
+            </div>
+
+            <!-- 對話系統介面 (Dialogue UI) -->
+            <div id="dialogueOverlay" class="hidden absolute inset-x-0 bottom-0 z-30 p-3 sm:p-6 flex flex-col items-center">
+                <div id="dialogueBox" class="pixel-box w-full max-w-3xl p-4 sm:p-5 rounded transition-colors duration-200">
+                    <!-- 說話者標籤與情緒指示 -->
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="flex items-center gap-2">
+                            <span id="speakerAvatar" class="inline-block w-3 h-3 bg-indigo-400"></span>
+                            <span id="speakerName" class="font-bold text-base sm:text-lg text-indigo-300 tracking-wider">陰鬱的男生</span>
+                        </div>
+                        <span id="angerMeterText" class="text-xs text-slate-400">精神狀態：表面平靜</span>
+                    </div>
+                    
+                    <!-- 打字機對話內容 -->
+                    <p id="dialogueText" class="text-slate-100 text-base sm:text-lg min-h-[3.5rem] leading-relaxed mb-4"></p>
+                    
+                    <!-- 玩家選項按鈕區 -->
+                    <div id="dialogueChoices" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <button id="choiceBtnA" class="pixel-btn p-3 rounded text-left text-sm sm:text-base text-slate-100 flex items-start gap-2">
+                            <span class="text-red-400 font-bold shrink-0">[拒絕]</span>
+                            <span id="choiceTextA">...</span>
+                        </button>
+                        <button id="choiceBtnB" class="pixel-btn p-3 rounded text-left text-sm sm:text-base text-slate-100 flex items-start gap-2">
+                            <span class="text-emerald-400 font-bold shrink-0">[順從]</span>
+                            <span id="choiceTextB">...</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 結局畫面 (Ending Screen) -->
+            <div id="endingScreen" class="hidden absolute inset-0 z-40 bg-black/92 flex flex-col items-center justify-center p-6 text-center">
+                <div id="endingTag" class="px-3 py-1 rounded text-xs sm:text-sm font-bold tracking-widest mb-3 border">
+                    ENDING
+                </div>
+                <h2 id="endingTitle" class="text-3xl sm:text-5xl font-black mb-4 tracking-wider">
+                    結局標題
+                </h2>
+                <p id="endingDesc" class="max-w-lg text-slate-300 text-sm sm:text-base leading-relaxed mb-6">
+                    結局描述文字...
+                </p>
+                <div id="endingStats" class="pixel-box px-5 py-3 rounded text-xs sm:text-sm text-slate-400 mb-7 space-y-1">
+                    <p id="statTime">逃生耗時：-- 秒</p>
+                    <p id="statObstacles">成功推倒障礙物：0 次</p>
+                </div>
+                <button id="restartBtn" class="pixel-btn px-8 py-3.5 rounded text-base sm:text-lg font-bold text-white tracking-widest">
+                    ↻ 重新體驗不同路線
+                </button>
+            </div>
+        </div>
+
+        <!-- 底部虛擬觸控按鈕區 (追逐模式顯示，兼顧手機與滑鼠點擊) -->
+        <div id="mobileControls" class="hidden bg-slate-900 border-t-2 border-slate-800 p-3 sm:p-4 z-20 flex justify-between items-center gap-4">
+            <button id="btnJump" class="pixel-btn flex-1 py-3.5 sm:py-4 rounded flex flex-col items-center justify-center active:bg-slate-700">
+                <span class="text-lg sm:text-xl font-black text-amber-300">▲ 跳躍閃避</span>
+                <span class="text-[11px] text-slate-400">空白鍵 / ↑ / W</span>
+            </button>
+            <button id="btnPush" class="pixel-btn-red flex-1 py-3.5 sm:py-4 rounded flex flex-col items-center justify-center">
+                <span class="text-lg sm:text-xl font-black text-white">✋ 推倒障礙物</span>
+                <span class="text-[11px] text-red-200">E 鍵 / ↓ / S</span>
+            </button>
+        </div>
+    </div>
+
+<script>
+/**
+ * ============================================================================
+ * 深夜歸途 (Midnight Walk Home) - 16-Bit 復古像素生存追逐遊戲
+ * 包含：Web Audio 8-bit 音效引擎、視差捲動深夜街景、精細像素角色繪製、
+ * 多輪心理對話系統、同行掙脫機制、障礙物跳躍與推倒物理反擊系統。
+ * ============================================================================
+ */
+
+// --- 1. Web Audio API 復古 8-Bit 音效合成器 ---
+class RetroAudioEngine {
+    constructor() {
+        this.ctx = null;
+        this.muted = false;
+        this.heartbeatTimer = null;
+        this.chaseMusicTimer = null;
+        this.chaseStep = 0;
+    }
+
+    init() {
+        if (!this.ctx) {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            this.ctx = new AudioCtx();
+        }
+        if (this.ctx.state === 'suspended') {
+            this.ctx.resume();
+        }
+    }
+
+    toggleMute() {
+        this.muted = !this.muted;
+        if (this.muted) {
+            this.stopChaseAudio();
+        }
+        return this.muted;
+    }
+
+    // 播放基礎方波/三角波音符
+    playTone(freq, type = 'square', duration = 0.1, vol = 0.1, slideFreq = null) {
+        if (this.muted || !this.ctx) return;
+        try {
+            const now = this.ctx.currentTime;
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, now);
+            if (slideFreq) {
+                osc.frequency.exponentialRampToValueAtTime(slideFreq, now + duration);
+            }
+            gain.gain.setValueAtTime(vol, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start(now);
+            osc.stop(now + duration);
+        } catch (e) {}
+    }
+
+    // 打字機對話音效
+    playBlip(isAngry = false) {
+        if (isAngry) {
+            this.playTone(130 + Math.random() * 40, 'sawtooth', 0.05, 0.07);
+        } else {
+            this.playTone(260 + Math.random() * 50, 'square', 0.04, 0.04);
+        }
+    }
+
+    // 選項點擊音效
+    playSelect(isRefuse = false) {
+        if (isRefuse) {
+            this.playTone(180, 'sawtooth', 0.15, 0.1, 110);
+        } else {
+            this.playTone(440, 'triangle', 0.12, 0.08, 520);
+        }
+    }
+
+    // 跳躍音效
+    playJump() {
+        this.playTone(220, 'square', 0.18, 0.09, 540);
+    }
+
+    // 推倒障礙物音效 (低頻撞擊 + 雜訊感)
+    playPushObstacle() {
+        this.playTone(160, 'sawtooth', 0.22, 0.14, 45);
+        setTimeout(() => this.playTone(95, 'square', 0.18, 0.12, 35), 60);
+    }
+
+    // 追擊者被絆倒慘叫/頓挫音
+    playStumbleEnemy() {
+        this.playTone(140, 'sawtooth', 0.28, 0.14, 55);
+    }
+
+    // 女主角絆倒減速音效
+    playHurt() {
+        this.playTone(190, 'sawtooth', 0.25, 0.14, 70);
+    }
+
+    // 暴走變臉驚悚音效
+    playBerserkTrigger() {
+        this.playTone(110, 'sawtooth', 0.5, 0.18, 42);
+        setTimeout(() => this.playTone(620, 'square', 0.35, 0.12, 180), 80);
+    }
+
+    // 安全門上鎖音效 (Good Ending)
+    playSafeLock() {
+        this.playTone(523.25, 'triangle', 0.15, 0.12);
+        setTimeout(() => this.playTone(659.25, 'triangle', 0.15, 0.12), 140);
+        setTimeout(() => this.playTone(783.99, 'triangle', 0.35, 0.14), 280);
+    }
+
+    // 被追上死亡驚悚音效 (Bad Ending)
+    playCaughtScream() {
+        this.playTone(480, 'sawtooth', 0.65, 0.2, 55);
+        setTimeout(() => this.playTone(310, 'square', 0.6, 0.18, 40), 100);
+    }
+
+    // 啟動追逐心跳與緊湊低音節拍
+    startChaseAudio() {
+        this.stopChaseAudio();
+        if (this.muted) return;
+
+        // 心跳低音 (每 650ms 兩下咚咚聲)
+        this.heartbeatTimer = setInterval(() => {
+            if (this.muted) return;
+            this.playTone(68, 'sine', 0.12, 0.22, 35);
+            setTimeout(() => this.playTone(60, 'sine', 0.14, 0.18, 30), 160);
+        }, 650);
+
+        // 緊湊懸疑 Bassline
+        const bassNotes = [110, 110, 130.81, 110, 146.83, 130.81, 116.54, 98];
+        this.chaseStep = 0;
+        this.chaseMusicTimer = setInterval(() => {
+            if (this.muted) return;
+            const freq = bassNotes[this.chaseStep % bassNotes.length];
+            this.playTone(freq, 'triangle', 0.14, 0.08);
+            this.chaseStep++;
+        }, 170);
+    }
+
+    stopChaseAudio() {
+        if (this.heartbeatTimer) {
+            clearInterval(this.heartbeatTimer);
+            this.heartbeatTimer = null;
+        }
+        if (this.chaseMusicTimer) {
+            clearInterval(this.chaseMusicTimer);
+            this.chaseMusicTimer = null;
+        }
+    }
+}
+
+const audio = new RetroAudioEngine();
+
+// --- 2. 劇情對話腳本資料 ---
+const DIALOGUE_ROUNDS = [
+    {
+        normalText: "「這麼晚了，一個女生走在暗巷太危險了。別自己回去了，跟我回家吧，只有我能保護你。」",
+        angryText: "「……別不識好歹！外面到處都是壞人，跟我回家才是為你好，你聽不懂嗎？」",
+        choiceA: "不用了，我家就在前面，請你不要跟著我。",
+        choiceB: "……好吧，那你陪我走一段路就好。"
+    },
+    {
+        normalText: "「把你的手機交給我保管吧。你總是看訊息，萬一被別人騙走怎麼辦？我幫你過濾聯絡人。」",
+        angryText: "「你幹嘛這麼防備我？！是不是在跟別的男人傳訊息？把手機交出來！」",
+        choiceA: "手機是我的隱私，我不可能交給你！",
+        choiceB: "（假裝配合）我、我手機快沒電了，先放進包包……"
+    },
+    {
+        normalText: "「以後別再跟你的朋友家人聯絡了，他們根本不了解你。你只需要聽我的話、待在我身邊就夠了。」",
+        angryText: "「既然你這麼不聽話，那就別怪我不客氣了……你哪裡也別想去！！」",
+        choiceA: "你太偏激了！離我遠一點！（轉身逃跑）",
+        choiceB: "……我知道了，我聽你的，我們走吧。"
+    }
+];
+
+// --- 3. 遊戲核心狀態與畫布初始化 ---
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// 內部邏輯解析度 (維持 16-bit 復古像素比例)
+const BASE_HEIGHT = 270;
+let BASE_WIDTH = 480;
+
+function resizeCanvas() {
+    const container = canvas.parentElement;
+    const aspect = container.clientWidth / container.clientHeight;
+    BASE_HEIGHT_CALC = 270;
+    BASE_WIDTH = Math.max(320, Math.round(BASE_HEIGHT_CALC * aspect));
+    canvas.width = BASE_WIDTH;
+    canvas.height = BASE_HEIGHT;
+    ctx.imageSmoothingEnabled = false;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// 遊戲狀態枚舉
+const STATE = {
+    START: 'START',
+    DIALOGUE: 'DIALOGUE',
+    COMPLY_WALK: 'COMPLY_WALK', // 表面順從同行階段
+    BERSERK_INTRO: 'BERSERK_INTRO', // 男生暴走拔刀瞬間停頓
+    CHASE: 'CHASE', // 緊張追殺跑酷階段
+    ENDING: 'ENDING'
+};
+
+// 全域遊戲變數
+let gameState = STATE.START;
+let lastTime = 0;
+let worldScroll = 0;
+let animTimer = 0;
+
+// 對話階段狀態
+let dialogueIndex = 0;
+let refuseCount = 0;
+let typingInterval = null;
+let isTyping = false;
+let currentFullText = "";
+
+// 跑酷與追逐距離參數 (單位：公尺)
+const TOTAL_GOAL_DISTANCE = 1000;
+let playerDistance = 0;       // 女主角已跑距離
+let pursuerDistance = -65;    // 男生距離 (負值代表在女主角後方幾公尺)
+let playerSpeed = 0;
+let pursuerSpeed = 0;
+let chaseStartTime = 0;
+let pushedObstaclesCount = 0;
+
+// 角色物理狀態
+const GROUND_Y = 216;
+const player = {
+    x: 110,
+    y: GROUND_Y,
+    vy: 0,
+    width: 16,
+    height: 34,
+    isJumping: false,
+    stumbleTimer: 0,    // 撞到障礙物踉蹌時間
+    pushAnimTimer: 0,   // 推倒動作動畫時間
+    facing: 1           // 1: 朝右, -1: 朝左
+};
+
+const pursuer = {
+    x: 45,
+    y: GROUND_Y,
+    vy: 0,
+    width: 18,
+    height: 36,
+    isAngry: false,
+    hasKnife: false,
+    stumbleTimer: 0     // 被推倒的障礙物絆倒減速時間
+};
+
+// 障礙物與粒子陣列
+let obstacles = [];
+let nextObstacleDist = 110;
+let particles = [];
+let floatingTexts = [];
+let screenFlashTimer = 0;
+
+// 同行模式參數
+let complyPromptTriggered = false;
+
+// --- 4. DOM 元素綁定 ---
+const startScreen = document.getElementById('startScreen');
+const dialogueOverlay = document.getElementById('dialogueOverlay');
+const dialogueBox = document.getElementById('dialogueBox');
+const speakerName = document.getElementById('speakerName');
+const speakerAvatar = document.getElementById('speakerAvatar');
+const angerMeterText = document.getElementById('angerMeterText');
+const dialogueText = document.getElementById('dialogueText');
+const dialogueChoices = document.getElementById('dialogueChoices');
+const choiceBtnA = document.getElementById('choiceBtnA');
+const choiceBtnB = document.getElementById('choiceBtnB');
+const choiceTextA = document.getElementById('choiceTextA');
+const choiceTextB = document.getElementById('choiceTextB');
+
+const hudTop = document.getElementById('hudTop');
+const phaseBadge = document.getElementById('phaseBadge');
+const distanceText = document.getElementById('distanceText');
+const progressFill = document.getElementById('progressFill');
+const hudPursuer = document.getElementById('hudPursuer');
+const hudPlayer = document.getElementById('hudPlayer');
+const dangerOverlay = document.getElementById('dangerOverlay');
+const complyPrompt = document.getElementById('complyPrompt');
+const mobileControls = document.getElementById('mobileControls');
+
+const endingScreen = document.getElementById('endingScreen');
+const endingTag = document.getElementById('endingTag');
+const endingTitle = document.getElementById('endingTitle');
+const endingDesc = document.getElementById('endingDesc');
+const endingStats = document.getElementById('endingStats');
+const statTime = document.getElementById('statTime');
+const statObstacles = document.getElementById('statObstacles');
+
+// --- 5. 遊戲流程控制函式 ---
+
+function startGame() {
+    audio.init();
+    audio.playSelect(false);
+
+    // 重置所有狀態
+    gameState = STATE.DIALOGUE;
+    dialogueIndex = 0;
+    refuseCount = 0;
+    worldScroll = 0;
+    playerDistance = 0;
+    pursuerDistance = -55;
+    pushedObstaclesCount = 0;
+    obstacles = [];
+    particles = [];
+    floatingTexts = [];
+    nextObstacleDist = 110;
+    complyPromptTriggered = false;
+
+    // 重置角色位置 (對話時面對面站立)
+    player.x = Math.min(220, BASE_WIDTH * 0.56);
+    player.y = GROUND_Y;
+    player.vy = 0;
+    player.isJumping = false;
+    player.stumbleTimer = 0;
+    player.pushAnimTimer = 0;
+    player.facing = -1; // 對話時面向左邊的男生
+
+    pursuer.x = player.x - 46;
+    pursuer.y = GROUND_Y;
+    pursuer.isAngry = false;
+    pursuer.hasKnife = false;
+    pursuer.stumbleTimer = 0;
+
+    // UI 切換
+    startScreen.classList.add('hidden');
+    endingScreen.classList.add('hidden');
+    hudTop.classList.add('hidden');
+    dangerOverlay.classList.add('hidden');
+    complyPrompt.classList.add('hidden');
+    mobileControls.classList.add('hidden');
+    dialogueOverlay.classList.remove('hidden');
+
+    dialogueBox.classList.remove('pixel-box-danger');
+    dialogueBox.classList.add('pixel-box');
+    speakerName.textContent = "陰鬱的男生";
+    speakerName.className = "font-bold text-base sm:text-lg text-indigo-300 tracking-wider";
+    speakerAvatar.className = "inline-block w-3 h-3 bg-indigo-400";
+    angerMeterText.textContent = "精神狀態：表面平靜";
+    angerMeterText.className = "text-xs text-slate-400";
+
+    showDialogueRound(0, false);
+}
+
+function showDialogueRound(index, showAngryVariant) {
+    const round = DIALOGUE_ROUNDS[index];
+    currentFullText = showAngryVariant ? round.angryText : round.normalText;
+    choiceTextA.textContent = round.choiceA;
+    choiceTextB.textContent = round.choiceB;
+
+    if (showAngryVariant || refuseCount > 0) {
+        angerMeterText.textContent = "精神狀態：陰沉壓抑 ⚠️";
+        angerMeterText.className = "text-xs text-amber-400 font-bold";
+    }
+
+    // 禁用選項直到打字完成 (或點擊快轉)
+    choiceBtnA.disabled = true;
+    choiceBtnB.disabled = true;
+    dialogueText.textContent = "";
+    isTyping = true;
+
+    let charIdx = 0;
+    if (typingInterval) clearInterval(typingInterval);
+    typingInterval = setInterval(() => {
+        if (charIdx < currentFullText.length) {
+            dialogueText.textContent += currentFullText[charIdx];
+            if (charIdx % 2 === 0) audio.playBlip(refuseCount > 0);
+            charIdx++;
+        } else {
+            finishTyping();
+        }
+    }, 32);
+}
+
+function finishTyping() {
+    if (typingInterval) clearInterval(typingInterval);
+    dialogueText.textContent = currentFullText;
+    isTyping = false;
+    choiceBtnA.disabled = false;
+    choiceBtnB.disabled = false;
+}
+
+// 點擊對話框可立即顯示完整文字
+dialogueBox.addEventListener('click', (e) => {
+    if (isTyping && !e.target.closest('button')) {
+        finishTyping();
+    }
+});
+
+// 處理玩家對話選擇
+function handleDialogueChoice(isRefuse) {
+    if (isTyping) {
+        finishTyping();
+        return;
+    }
+
+    audio.playSelect(isRefuse);
+
+    if (isRefuse) {
+        refuseCount++;
+        // 若連續拒絕2次，或在最後一輪拒絕，直接觸發暴走追殺！
+        if (refuseCount >= 2 || dialogueIndex === DIALOGUE_ROUNDS.length - 1) {
+            triggerBerserkChase("「敬酒不吃吃罰酒……別想跑！！」");
+            return;
+        }
+        // 第一次拒絕：男生臉色變差但繼續逼問下一輪
+        dialogueIndex++;
+        pursuer.x += 8; // 逼近一步
+        showDialogueRound(dialogueIndex, true);
+    } else {
+        // 選擇表面順從
+        if (dialogueIndex < DIALOGUE_ROUNDS.length - 1) {
+            dialogueIndex++;
+            showDialogueRound(dialogueIndex, false);
+        } else {
+            // 三輪皆表面順從 -> 進入「同行模式」
+            startComplyWalkPhase();
+        }
+    }
+}
+
+choiceBtnA.addEventListener('click', () => handleDialogueChoice(true));
+choiceBtnB.addEventListener('click', () => handleDialogueChoice(false));
+
+// 進入「表面順從同行模式」
+function startComplyWalkPhase() {
+    gameState = STATE.COMPLY_WALK;
+    dialogueOverlay.classList.add('hidden');
+    hudTop.classList.remove('hidden');
+
+    phaseBadge.textContent = "⚠️ 被迫同行中";
+    phaseBadge.className = "px-2 py-0.5 rounded bg-amber-950 border border-amber-500 text-amber-300 font-bold tracking-wider";
+
+    player.facing = 1;
+    playerDistance = 120;
+    pursuerDistance = 102; // 緊跟在身後
+    complyPromptTriggered = false;
+}
+
+// 觸發「暴走追殺模式」
+function triggerBerserkChase(shoutText) {
+    gameState = STATE.BERSERK_INTRO;
+    audio.playBerserkTrigger();
+
+    // 視覺震動與紅光閃爍
+    document.getElementById('gameContainer').classList.add('shake-screen');
+    setTimeout(() => {
+        document.getElementById('gameContainer').classList.remove('shake-screen');
+    }, 400);
+    screenFlashTimer = 0.25;
+
+    // 角色狀態切換為追殺
+    pursuer.isAngry = true;
+    pursuer.hasKnife = true;
+    player.facing = 1;
+
+    // 顯示一瞬間的暴怒台詞
+    dialogueOverlay.classList.remove('hidden');
+    dialogueChoices.classList.add('hidden');
+    dialogueBox.classList.remove('pixel-box');
+    dialogueBox.classList.add('pixel-box-danger');
+    speakerName.textContent = "失去理智的男人";
+    speakerName.className = "font-bold text-base sm:text-lg text-red-400 tracking-wider";
+    speakerAvatar.className = "inline-block w-3 h-3 bg-red-500 animate-ping";
+    angerMeterText.textContent = "狀態：暴走追殺 💀";
+    angerMeterText.className = "text-xs text-red-400 font-bold";
+    dialogueText.textContent = shoutText;
+    complyPrompt.classList.add('hidden');
+
+    // 0.95 秒後正式進入全力狂奔追逐
+    setTimeout(() => {
+        if (gameState !== STATE.BERSERK_INTRO) return;
+        gameState = STATE.CHASE;
+        dialogueOverlay.classList.add('hidden');
+        dialogueChoices.classList.remove('hidden');
+        hudTop.classList.remove('hidden');
+        dangerOverlay.classList.remove('hidden');
+        mobileControls.classList.remove('hidden');
+
+        phaseBadge.textContent = "🚨 逃命追逐中！";
+        phaseBadge.className = "px-2 py-0.5 rounded bg-red-950 border border-red-500 text-red-300 font-bold tracking-wider animate-pulse";
+
+        // 確保有合理的初始安全距離供反應
+        if (playerDistance < 100) playerDistance = 100;
+        pursuerDistance = playerDistance - 48;
+        nextObstacleDist = playerDistance + 95;
+        obstacles = [];
+        chaseStartTime = performance.now();
+
+        audio.startChaseAudio();
+        addFloatingText("快往右邊安全屋跑！", player.x, player.y - 44, "#fde047");
+    }, 950);
+}
+
+// --- 6. 玩家跑酷操作 (跳躍與推倒障礙物) ---
+
+function triggerPlayerJump() {
+    if (gameState !== STATE.CHASE) return;
+    if (!player.isJumping && player.stumbleTimer <= 0) {
+        player.vy = -310;
+        player.isJumping = true;
+        audio.playJump();
+        spawnDustParticles(player.x + 8, player.y, 5, "#94a3b8");
+    }
+}
+
+function triggerPlayerPush() {
+    if (gameState !== STATE.CHASE) return;
+    player.pushAnimTimer = 0.25;
+
+    // 尋找前方或剛經過身邊的可推倒障礙物
+    let pushedAny = false;
+    for (let obs of obstacles) {
+        if (obs.kind === 'pushable' && !obs.knockedDown && !obs.hitPlayer) {
+            const distDiff = obs.worldDist - playerDistance;
+            // 判定範圍：前方 26m 到身後 10m 內皆可順手推倒
+            if (distDiff >= -10 && distDiff <= 28) {
+                obs.knockedDown = true;
+                pushedAny = true;
+                pushedObstaclesCount++;
+                audio.playPushObstacle();
+                addFloatingText("推倒路障！", obs.screenX, obs.y - 16, "#38bdf8");
+                spawnDustParticles(obs.screenX + 10, obs.y, 8, "#cbd5e1");
+                break;
+            }
+        }
+    }
+
+    if (!pushedAny) {
+        // 揮空輕微音效
+        audio.playTone(150, 'triangle', 0.06, 0.04);
+    }
+}
+
+// 鍵盤事件監聽
+window.addEventListener('keydown', (e) => {
+    if (e.repeat) return;
+    const key = e.key.toLowerCase();
+
+    if (gameState === STATE.COMPLY_WALK) {
+        if (e.code === 'Space' || key === 'e' || key === 'a' || e.key === 'ArrowLeft') {
+            triggerBerserkChase("「你竟然敢甩開我？！給我站住！！」");
+        }
+        return;
+    }
+
+    if (gameState === STATE.CHASE) {
+        if (e.code === 'Space' || e.key === 'ArrowUp' || key === 'w') {
+            e.preventDefault();
+            triggerPlayerJump();
+        } else if (key === 'e' || e.key === 'ArrowDown' || key === 's') {
+            e.preventDefault();
+            triggerPlayerPush();
+        }
+    }
+});
+
+// 虛擬按鍵與點擊綁定
+document.getElementById('startBtn').addEventListener('click', startGame);
+document.getElementById('restartBtn').addEventListener('click', startGame);
+document.getElementById('btnJump').addEventListener('click', triggerPlayerJump);
+document.getElementById('btnPush').addEventListener('click', triggerPlayerPush);
+document.getElementById('struggleActionBtn').addEventListener('click', () => {
+    if (gameState === STATE.COMPLY_WALK) {
+        triggerBerserkChase("「你竟然敢甩開我？！給我站住！！」");
+    }
+});
+
+document.getElementById('muteBtn').addEventListener('click', (e) => {
+    const isMuted = audio.toggleMute();
+    e.target.textContent = isMuted ? "🔇 音效：關" : "🔊 音效：開";
+    if (!isMuted && gameState === STATE.CHASE) {
+        audio.startChaseAudio();
+    }
+});
+
+// --- 7. 障礙物生成與物理更新 ---
+
+const OBSTACLE_TYPES = [
+    { id: 'trashcan', name: '鐵皮垃圾桶', kind: 'pushable', width: 14, height: 20, color: '#64748b' },
+    { id: 'crate', name: '堆疊木箱', kind: 'pushable', width: 18, height: 22, color: '#b45309' },
+    { id: 'bicycle', name: '路邊單車', kind: 'pushable', width: 22, height: 18, color: '#0284c7' },
+    { id: 'barrier', name: '施工拒馬', kind: 'jump', width: 18, height: 17, color: '#eab308' },
+    { id: 'puddle', name: '積水深坑', kind: 'jump', width: 26, height: 5, color: '#38bdf8' },
+    { id: 'lowwall', name: '水泥矮墩', kind: 'jump', width: 16, height: 19, color: '#94a3b8' }
+];
+
+function spawnObstacle(dist) {
+    // 距離終點前 55 公尺不再生成障礙物，留給安全屋衝刺
+    if (dist > TOTAL_GOAL_DISTANCE - 55) return;
+
+    const template = OBSTACLE_TYPES[Math.floor(Math.random() * OBSTACLE_TYPES.length)];
+    obstacles.push({
+        ...template,
+        worldDist: dist,
+        screenX: 0,
+        y: GROUND_Y,
+        knockedDown: false,
+        hitPlayer: false,
+        trippedEnemy: false
+    });
+}
+
+function spawnDustParticles(x, y, count, color) {
+    for (let i = 0; i < count; i++) {
+        particles.push({
+            x: x + (Math.random() - 0.5) * 10,
+            y: y - Math.random() * 6,
+            vx: (Math.random() - 0.5) * 60 - 20,
+            vy: -Math.random() * 55 - 10,
+            size: Math.random() > 0.5 ? 3 : 2,
+            color: color,
+            life: 0.35 + Math.random() * 0.2
+        });
+    }
+}
+
+function addFloatingText(text, x, y, color) {
+    floatingTexts.push({
+        text,
+        x,
+        y,
+        vy: -28,
+        color,
+        life: 0.9
+    });
+}
+
+// --- 8. 遊戲結局觸發 ---
+
+function triggerEnding(type) {
+    gameState = STATE.ENDING;
+    audio.stopChaseAudio();
+
+    hudTop.classList.add('hidden');
+    dangerOverlay.classList.add('hidden');
+    complyPrompt.classList.add('hidden');
+    mobileControls.classList.add('hidden');
+    dialogueOverlay.classList.add('hidden');
+    endingScreen.classList.remove('hidden');
+
+    const elapsedSec = chaseStartTime > 0 ? ((performance.now() - chaseStartTime) / 1000).toFixed(1) : "0.0";
+
+    if (type === 'GOOD') {
+        audio.playSafeLock();
+        endingTag.textContent = "GOOD ENDING // 驚險生還";
+        endingTag.className = "px-3 py-1 rounded text-xs sm:text-sm font-bold tracking-widest mb-3 border border-emerald-500 bg-emerald-950 text-emerald-300";
+        endingTitle.textContent = "安全屋的鎖聲";
+        endingTitle.className = "text-3xl sm:text-5xl font-black mb-4 tracking-wider text-emerald-300";
+        endingDesc.textContent = "你衝進亮著溫暖燈光的安全屋，用盡全身力氣反鎖了厚重的鐵門。門外傳來他不甘心的踹門與怒吼聲，但警笛聲已由遠而近傳來——你成功保護了自己！";
+        endingStats.classList.remove('hidden');
+        statTime.textContent = `逃生衝刺耗時：${elapsedSec} 秒`;
+        statObstacles.textContent = `成功推倒路障反擊：${pushedObstaclesCount} 次`;
+    } else if (type === 'BAD_CAUGHT') {
+        audio.playCaughtScream();
+        endingTag.textContent = "BAD ENDING 1 // 命喪暗巷";
+        endingTag.className = "px-3 py-1 rounded text-xs sm:text-sm font-bold tracking-widest mb-3 border border-red-500 bg-red-950 text-red-300";
+        endingTitle.textContent = "冰冷的終點";
+        endingTitle.className = "text-3xl sm:text-5xl font-black mb-4 tracking-wider text-red-500";
+        endingDesc.textContent = "身後的腳步聲瞬間貼近，冰冷的寒光閃過。深夜的街道再次恢復死寂，彷彿什麼都沒有發生過……（提示：善用跳躍躲避水坑圍欄，並按 E 鍵推倒垃圾桶與木箱拖延他！）";
+        endingStats.classList.remove('hidden');
+        statTime.textContent = `堅持時間：${elapsedSec} 秒（距離安全屋還差 ${Math.max(1, Math.round(TOTAL_GOAL_DISTANCE - playerDistance))}m）`;
+        statObstacles.textContent = `成功推倒路障反擊：${pushedObstaclesCount} 次`;
+    } else if (type === 'BAD_COMPLY') {
+        audio.playTone(90, 'sawtooth', 0.8, 0.15, 45);
+        endingTag.textContent = "BAD ENDING 2 // 失去自由";
+        endingTag.className = "px-3 py-1 rounded text-xs sm:text-sm font-bold tracking-widest mb-3 border border-purple-500 bg-purple-950 text-purple-300";
+        endingTitle.textContent = "無聲的囚籠";
+        endingTitle.className = "text-3xl sm:text-5xl font-black mb-4 tracking-wider text-purple-300";
+        endingDesc.textContent = "你一路順從沒有反抗，最終被他帶進了陌生而封閉的公寓。門鎖落下的那一刻，你的手機被沒收，再也沒有人知道你的下落……（提示：同行時可隨時按空白鍵掙脫逃跑！）";
+        endingStats.classList.add('hidden');
+    }
+}
+
+// --- 9. 主遊戲迴圈 (Update & Render) ---
+
+function update(dt) {
+    animTimer += dt;
+    if (screenFlashTimer > 0) screenFlashTimer -= dt;
+
+    // 對話階段與開始畫面：僅更新背景微動
+    if (gameState === STATE.START || gameState === STATE.DIALOGUE || gameState === STATE.BERSERK_INTRO || gameState === STATE.ENDING) {
+        updateParticles(dt);
+        return;
+    }
+
+    // 表面順從同行模式
+    if (gameState === STATE.COMPLY_WALK) {
+        const walkSpeed = 48; // 公尺/秒
+        playerDistance += walkSpeed * dt;
+        pursuerDistance = playerDistance - 18;
+        worldScroll += walkSpeed * 3.8 * dt;
+
+        // 畫面角色位置安排
+        player.x = Math.min(230, BASE_WIDTH * 0.55);
+        pursuer.x = player.x - 24;
+
+        // 走到 340m 時跳出「半途掙脫」提示
+        if (playerDistance >= 340 && !complyPromptTriggered) {
+            complyPromptTriggered = true;
+            complyPrompt.classList.remove('hidden');
+        }
+
+        // 若完全不抗拒走到終點 -> 觸發 Bad Ending 2
+        if (playerDistance >= TOTAL_GOAL_DISTANCE) {
+            triggerEnding('BAD_COMPLY');
+            return;
+        }
+
+        updateHUD();
+        return;
+    }
+
+    // 追逐逃生模式 (CHASE)
+    if (gameState === STATE.CHASE) {
+        // 1. 女主角速度計算 (基礎速度 76m/s，撞到障礙物減速)
+        if (player.stumbleTimer > 0) {
+            player.stumbleTimer -= dt;
+            playerSpeed = 36;
+        } else {
+            playerSpeed = 78;
+        }
+
+        if (player.pushAnimTimer > 0) {
+            player.pushAnimTimer -= dt;
+        }
+
+        // 2. 男生追擊速度計算 (略快於基礎速度 81.5m/s，逼迫玩家必須靠推倒障礙物拉開距離)
+        if (pursuer.stumbleTimer > 0) {
+            pursuer.stumbleTimer -= dt;
+            pursuerSpeed = 24; // 被障礙物絆倒大幅減速 1.5 秒
+        } else {
+            pursuerSpeed = 81.5;
+        }
+
+        playerDistance += playerSpeed * dt;
+        pursuerDistance += pursuerSpeed * dt;
+        worldScroll += playerSpeed * 4.2 * dt;
+
+        // 3. 女主角跳躍垂直物理
+        if (player.isJumping) {
+            player.y += player.vy * dt;
+            player.vy += 880 * dt; // 重力
+            if (player.y >= GROUND_Y) {
+                player.y = GROUND_Y;
+                player.vy = 0;
+                player.isJumping = false;
+                spawnDustParticles(player.x + 8, player.y, 4, "#64748b");
+            }
+        }
+
+        // 4. 動態生成障礙物
+        if (playerDistance + 140 >= nextObstacleDist) {
+            spawnObstacle(nextObstacleDist);
+            nextObstacleDist += 72 + Math.random() * 48;
+        }
+
+        // 5. 障礙物座標與碰撞判定 (1 公尺 = 4.2 像素)
+        const PIXELS_PER_METER = 4.2;
+        player.x = Math.min(210, BASE_WIDTH * 0.46);
+        const gapMeters = playerDistance - pursuerDistance;
+        pursuer.x = player.x - gapMeters * PIXELS_PER_METER;
+
+        for (let i = obstacles.length - 1; i >= 0; i--) {
+            const obs = obstacles[i];
+            obs.screenX = player.x + (obs.worldDist - playerDistance) * PIXELS_PER_METER;
+
+            // 檢查女主角是否撞到未推倒的障礙物
+            if (!obs.knockedDown && !obs.hitPlayer) {
+                const playerLeft = player.x + 3;
+                const playerRight = player.x + player.width - 3;
+                const obsLeft = obs.screenX + 2;
+                const obsRight = obs.screenX + obs.width - 2;
+
+                if (playerRight > obsLeft && playerLeft < obsRight) {
+                    // 檢查跳躍高度是否足夠越過障礙物
+                    const playerBottom = player.y;
+                    const obsTop = obs.y - obs.height;
+                    if (playerBottom > obsTop + 4) {
+                        // 撞到了！
+                        obs.hitPlayer = true;
+                        player.stumbleTimer = 0.85;
+                        audio.playHurt();
+                        addFloatingText("絆到了！減速！", player.x, player.y - 38, "#f87171");
+                        spawnDustParticles(player.x + 8, player.y, 6, "#f87171");
+                        document.getElementById('gameContainer').classList.add('shake-screen');
+                        setTimeout(() => document.getElementById('gameContainer').classList.remove('shake-screen'), 300);
+                    }
+                }
+            }
+
+            // 檢查追擊者是否被「已推倒的障礙物」絆倒
+            if (obs.knockedDown && !obs.trippedEnemy) {
+                if (pursuerDistance >= obs.worldDist - 3 && pursuerDistance <= obs.worldDist + 6) {
+                    obs.trippedEnemy = true;
+                    pursuer.stumbleTimer = 1.5; // 追擊者減速 1.5 秒
+                    audio.playStumbleEnemy();
+                    addFloatingText("追兵被絆倒！減速 1.5s", pursuer.x, pursuer.y - 40, "#4ade80");
+                    spawnDustParticles(pursuer.x + 8, pursuer.y, 10, "#fbbf24");
+                }
+            }
+
+            // 移除已遠離畫面左側的障礙物
+            if (obs.screenX < -120) {
+                obstacles.splice(i, 1);
+            }
+        }
+
+        updateParticles(dt);
+        updateHUD();
+
+        // 6. 勝負條件判定
+        if (playerDistance >= TOTAL_GOAL_DISTANCE) {
+            triggerEnding('GOOD');
+            return;
+        }
+        if (pursuerDistance >= playerDistance - 3.5) {
+            triggerEnding('BAD_CAUGHT');
+            return;
+        }
+    }
+}
+
+function updateParticles(dt) {
+    for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.vy += 180 * dt;
+        p.life -= dt;
+        if (p.life <= 0) particles.splice(i, 1);
+    }
+    for (let i = floatingTexts.length - 1; i >= 0; i--) {
+        const ft = floatingTexts[i];
+        ft.y += ft.vy * dt;
+        ft.life -= dt;
+        if (ft.life <= 0) floatingTexts.splice(i, 1);
+    }
+}
+
+function updateHUD() {
+    const remain = Math.max(0, Math.round(TOTAL_GOAL_DISTANCE - playerDistance));
+    distanceText.textContent = `距離安全屋：${remain}m`;
+
+    const playerPct = Math.min(93, Math.max(8, (playerDistance / TOTAL_GOAL_DISTANCE) * 90 + 5));
+    const pursuerPct = Math.min(playerPct - 3, Math.max(1, (pursuerDistance / TOTAL_GOAL_DISTANCE) * 90 + 5));
+
+    progressFill.style.width = `${playerPct}%`;
+    hudPlayer.style.left = `${playerPct}%`;
+    hudPursuer.style.left = `${pursuerPct}%`;
+}
+
+// --- 10. 16-Bit 像素美術繪製引擎 ---
+
+function render() {
+    // 1. 深夜漸層夜空
+    const skyGrad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+    skyGrad.addColorStop(0, '#060811');
+    skyGrad.addColorStop(0.6, '#0f1629');
+    skyGrad.addColorStop(1, '#1a2238');
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(0, 0, BASE_WIDTH, BASE_HEIGHT);
+
+    // 2. 遠景城市剪影與微亮窗戶 (視差係數 0.15)
+    drawCitySkyline(worldScroll * 0.15);
+
+    // 3. 中景公寓建築群與電線桿 (視差係數 0.45)
+    drawMidgroundBuildings(worldScroll * 0.45);
+
+    // 4. 柏油馬路與人行道磚塊 (視差係數 1.0)
+    drawStreetAndSidewalk(worldScroll);
+
+    // 5. 路燈與溫暖光錐 (視差係數 1.0)
+    drawStreetLamps(worldScroll);
+
+    // 6. 終點安全屋 (當距離接近時出現在畫面右側)
+    const PIXELS_PER_METER = 4.2;
+    const safeHouseScreenX = player.x + (TOTAL_GOAL_DISTANCE - playerDistance) * PIXELS_PER_METER;
+    if (safeHouseScreenX < BASE_WIDTH + 150) {
+        drawSafeHouse(safeHouseScreenX, GROUND_Y);
+    }
+
+    // 7. 街道障礙物
+    drawObstacles();
+
+    // 8. 繪製追擊者 (陰鬱連帽男) 與 女主角 (長髮大衣女孩)
+    drawPursuerCharacter(pursuer);
+    drawHeroineCharacter(player);
+
+    // 9. 粒子特效與浮動提示字
+    drawParticlesAndTexts();
+
+    // 10. 暴走瞬間紅白閃光
+    if (screenFlashTimer > 0) {
+        ctx.fillStyle = `rgba(239, 68, 68, ${screenFlashTimer * 2.5})`;
+        ctx.fillRect(0, 0, BASE_WIDTH, BASE_HEIGHT);
+    }
+}
+
+// 繪製遠景高樓剪影
+function drawCitySkyline(scroll) {
+    // 月亮
+    ctx.fillStyle = '#fef3c7';
+    ctx.fillRect(BASE_WIDTH - 75, 28, 16, 16);
+    ctx.fillStyle = '#0f1629';
+    ctx.fillRect(BASE_WIDTH - 71, 26, 12, 12); // 弦月缺口
+
+    const blockW = 42;
+    const count = Math.ceil(BASE_WIDTH / blockW) + 2;
+    const startIdx = Math.floor(scroll / blockW);
+    const offsetX = -(scroll % blockW);
+
+    for (let i = 0; i < count; i++) {
+        const idx = startIdx + i;
+        // 使用確定性偽隨機產生大樓高度
+        const h = 45 + ((idx * 37) % 65);
+        const x = offsetX + i * blockW;
+        const y = GROUND_Y - h;
+
+        ctx.fillStyle = '#0b101e';
+        ctx.fillRect(x, y, blockW - 3, h);
+
+        // 零星幾扇微亮黃燈窗戶
+        if (idx % 3 === 0) {
+            ctx.fillStyle = 'rgba(253, 224, 71, 0.25)';
+            ctx.fillRect(x + 8, y + 12, 4, 4);
+            ctx.fillRect(x + 22, y + 26, 4, 4);
+        }
+    }
+}
+
+// 繪製中景老舊公寓與電線桿
+function drawMidgroundBuildings(scroll) {
+    const bWidth = 95;
+    const count = Math.ceil(BASE_WIDTH / bWidth) + 2;
+    const startIdx = Math.floor(scroll / bWidth);
+    const offsetX = -(scroll % bWidth);
+
+    for (let i = 0; i < count; i++) {
+        const idx = startIdx + i;
+        const x = offsetX + i * bWidth;
+        const h = 95 + ((idx * 23) % 45);
+        const y = GROUND_Y - h;
+
+        // 公寓主體
+        ctx.fillStyle = '#131a2c';
+        ctx.fillRect(x, y, bWidth - 8, h);
+        ctx.fillStyle = '#1e293b';
+        ctx.fillRect(x, y, bWidth - 8, 3); // 屋頂邊緣
+
+        // 暗淡窗戶網格
+        for (let wy = y + 12; wy < GROUND_Y - 24; wy += 22) {
+            for (let wx = x + 12; wx < x + bWidth - 22; wx += 22) {
+                const lit = ((idx + wy + wx) % 11 === 0);
+                ctx.fillStyle = lit ? 'rgba(251, 191, 36, 0.35)' : '#090d16';
+                ctx.fillRect(wx, wy, 10, 12);
+            }
+        }
+    }
+}
+
+// 繪製路面與人行道
+function drawStreetAndSidewalk(scroll) {
+    // 人行道石板
+    ctx.fillStyle = '#262f40';
+    ctx.fillRect(0, GROUND_Y, BASE_WIDTH, 10);
+    ctx.fillStyle = '#334155';
+    ctx.fillRect(0, GROUND_Y, BASE_WIDTH, 2);
+
+    // 柏油馬路
+    ctx.fillStyle = '#11151f';
+    ctx.fillRect(0, GROUND_Y + 10, BASE_WIDTH, BASE_HEIGHT - GROUND_Y - 10);
+
+    // 路面白色虛線
+    const dashW = 28;
+    const gapW = 24;
+    const period = dashW + gapW;
+    const offsetX = -(scroll % period);
+    ctx.fillStyle = '#475569';
+    for (let x = offsetX; x < BASE_WIDTH; x += period) {
+        ctx.fillRect(x, GROUND_Y + 28, dashW, 3);
+    }
+}
+
+// 繪製路燈與光暈
+function drawStreetLamps(scroll) {
+    const spacing = 190;
+    const count = Math.ceil(BASE_WIDTH / spacing) + 2;
+    const startIdx = Math.floor(scroll / spacing);
+    const offsetX = -(scroll % spacing) + 65;
+
+    for (let i = 0; i < count; i++) {
+        const x = offsetX + i * spacing;
+        const lampTopY = GROUND_Y - 96;
+
+        // 燈柱
+        ctx.fillStyle = '#334155';
+        ctx.fillRect(x, lampTopY, 3, 96);
+        ctx.fillRect(x - 2, GROUND_Y - 12, 7, 12); // 底座
+        // 燈臂與燈罩
+        ctx.fillRect(x, lampTopY, 14, 2);
+        ctx.fillStyle = '#fef08a';
+        ctx.fillRect(x + 8, lampTopY + 2, 7, 3);
+
+        // 路燈梯形光錐 (追逐時帶有一絲詭異閃爍)
+        const flicker = (gameState === STATE.CHASE && Math.sin(animTimer * 25 + i) > 0.85) ? 0.04 : 0.11;
+        ctx.fillStyle = `rgba(254, 240, 138, ${flicker})`;
+        ctx.beginPath();
+        ctx.moveTo(x + 8, lampTopY + 5);
+        ctx.lineTo(x + 15, lampTopY + 5);
+        ctx.lineTo(x + 48, GROUND_Y + 6);
+        ctx.lineTo(x - 25, GROUND_Y + 6);
+        ctx.closePath();
+        ctx.fill();
+    }
+}
+
+// 繪製終點安全屋 (温暖明亮的避難處)
+function drawSafeHouse(x, groundY) {
+    const w = 84;
+    const h = 88;
+    const y = groundY - h;
+
+    // 建築本體
+    ctx.fillStyle = '#334155';
+    ctx.fillRect(x, y, w, h);
+    // 斜屋頂
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(x - 6, y - 10, w + 12, 12);
+
+    // 溫暖發光的「安全屋」招牌
+    ctx.fillStyle = '#064e3b';
+    ctx.fillRect(x + 14, y + 8, 56, 14);
+    ctx.strokeStyle = '#34d399';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 14, y + 8, 56, 14);
+    ctx.fillStyle = '#a7f3d0';
+    ctx.font = 'bold 9px "DotGothic16", sans-serif';
+    ctx.fillText('SAFE HOUSE', x + 19, y + 18);
+
+    // 明亮的窗戶
+    ctx.fillStyle = '#fef08a';
+    ctx.fillRect(x + 12, y + 32, 20, 22);
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(x + 21, y + 32, 2, 22);
+    ctx.fillRect(x + 12, y + 42, 20, 2);
+
+    // 敞開等待的溫暖大門
+    ctx.fillStyle = '#fde047';
+    ctx.fillRect(x + 44, y + 34, 26, 54);
+    ctx.fillStyle = '#b45309';
+    ctx.fillRect(x + 42, y + 32, 30, 3);
+
+    // 門口地面溫暖光暈
+    ctx.fillStyle = 'rgba(253, 224, 71, 0.25)';
+    ctx.fillRect(x + 25, groundY - 2, 60, 12);
+}
+
+// 繪製街道障礙物與操作提示標籤
+function drawObstacles() {
+    for (const obs of obstacles) {
+        const x = Math.round(obs.screenX);
+        const y = Math.round(obs.y);
+
+        ctx.save();
+        if (obs.knockedDown) {
+            // 已推倒狀態：橫躺在地面上
+            ctx.fillStyle = obs.color;
+            ctx.fillRect(x - 6, y - 7, obs.height, 7);
+            ctx.fillStyle = 'rgba(0,0,0,0.4)';
+            ctx.fillRect(x - 6, y - 3, obs.height, 3);
+        } else {
+            // 直立狀態繪製不同種類像素物件
+            if (obs.id === 'trashcan') {
+                ctx.fillStyle = '#64748b';
+                ctx.fillRect(x, y - 18, 14, 18);
+                ctx.fillStyle = '#94a3b8';
+                ctx.fillRect(x - 1, y - 20, 16, 3); // 蓋子
+                ctx.fillStyle = '#334155';
+                ctx.fillRect(x + 3, y - 14, 2, 11);
+                ctx.fillRect(x + 9, y - 14, 2, 11);
+            } else if (obs.id === 'crate') {
+                ctx.fillStyle = '#b45309';
+                ctx.fillRect(x, y - 22, 18, 22);
+                ctx.strokeStyle = '#78350f';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x + 1, y - 21, 16, 20);
+                ctx.beginPath();
+                ctx.moveTo(x, y - 22);
+                ctx.lineTo(x + 18, y);
+                ctx.stroke();
+            } else if (obs.id === 'bicycle') {
+                // 兩顆輪子與車架
+                ctx.strokeStyle = '#cbd5e1';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x, y - 8, 8, 8);
+                ctx.strokeRect(x + 14, y - 8, 8, 8);
+                ctx.fillStyle = '#0284c7';
+                ctx.fillRect(x + 4, y - 13, 14, 3);
+                ctx.fillRect(x + 14, y - 18, 3, 10);
+            } else if (obs.id === 'barrier') {
+                // 黃黑相間施工拒馬
+                ctx.fillStyle = '#eab308';
+                ctx.fillRect(x, y - 15, 18, 6);
+                ctx.fillStyle = '#090a0f';
+                ctx.fillRect(x + 4, y - 15, 4, 6);
+                ctx.fillRect(x + 12, y - 15, 4, 6);
+                ctx.fillStyle = '#94a3b8';
+                ctx.fillRect(x + 2, y - 9, 2, 9);
+                ctx.fillRect(x + 14, y - 9, 2, 9);
+            } else if (obs.id === 'puddle') {
+                // 反光水坑
+                ctx.fillStyle = '#0284c7';
+                ctx.fillRect(x, y - 2, 26, 4);
+                ctx.fillStyle = '#7dd3fc';
+                ctx.fillRect(x + 4, y - 1, 12, 1);
+            } else {
+                // 水泥矮墩
+                ctx.fillStyle = '#94a3b8';
+                ctx.fillRect(x, y - 19, 16, 19);
+                ctx.fillStyle = '#cbd5e1';
+                ctx.fillRect(x, y - 19, 16, 3);
+            }
+
+            // 當女主角接近障礙物時，顯示像素快捷提示小標
+            const distToPlayer = x - player.x;
+            if (gameState === STATE.CHASE && distToPlayer > -10 && distToPlayer < 95) {
+                ctx.font = 'bold 9px "DotGothic16", sans-serif';
+                if (obs.kind === 'pushable') {
+                    ctx.fillStyle = '#38bdf8';
+                    ctx.fillText('[E]推倒', x - 6, y - obs.height - 6);
+                } else {
+                    ctx.fillStyle = '#fde047';
+                    ctx.fillText('[跳躍]', x - 4, y - obs.height - 6);
+                }
+            }
+        }
+        ctx.restore();
+    }
+}
+
+// 繪製女主角 (長髮、米白/淺駝色大衣、深色長靴)
+function drawHeroineCharacter(p) {
+    const x = Math.round(p.x);
+    const y = Math.round(p.y);
+    const isMoving = (gameState === STATE.CHASE || gameState === STATE.COMPLY_WALK);
+    const runCycle = isMoving ? Math.sin(animTimer * 22) : 0;
+    const bobY = isMoving && !p.isJumping ? Math.abs(Math.cos(animTimer * 22)) * 2 : 0;
+
+    ctx.save();
+    // 腳底陰影
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.fillRect(x + 2, GROUND_Y - 1, 12, 3);
+
+    // 雙腿奔跑擺動
+    ctx.fillStyle = '#1e293b';
+    const legOffset = Math.round(runCycle * 4);
+    ctx.fillRect(x + 5 + legOffset, y - 10, 3, 10);
+    ctx.fillRect(x + 8 - legOffset, y - 10, 3, 10);
+
+    // 淺駝色風衣大衣
+    ctx.fillStyle = '#e2c799';
+    ctx.fillRect(x + 3, y - 24 + bobY, 10, 15);
+    // 大衣領口與圍巾
+    ctx.fillStyle = '#be123c';
+    ctx.fillRect(x + 4, y - 24 + bobY, 8, 3);
+
+    // 頭部與臉龐
+    ctx.fillStyle = '#fed7aa';
+    ctx.fillRect(x + 4, y - 32 + bobY, 8, 8);
+
+    // 眼睛 (依朝向繪製)
+    ctx.fillStyle = '#0f172a';
+    if (p.facing === 1) {
+        ctx.fillRect(x + 10, y - 29 + bobY, 2, 2);
+    } else {
+        ctx.fillRect(x + 4, y - 29 + bobY, 2, 2);
+    }
+
+    // 飄逸深棕色長髮
+    ctx.fillStyle = '#291d18';
+    ctx.fillRect(x + 3, y - 34 + bobY, 10, 3); // 頭頂
+    if (p.facing === 1) {
+        // 往左飄的長髮
+        const hairWave = isMoving ? Math.round(Math.sin(animTimer * 18) * 2) : 0;
+        ctx.fillRect(x + 1, y - 32 + bobY, 4, 14);
+        ctx.fillRect(x - 2 - hairWave, y - 28 + bobY, 4, 10);
+    } else {
+        ctx.fillRect(x + 11, y - 32 + bobY, 4, 14);
+    }
+
+    // 推倒障礙物時伸出的手臂動作
+    if (p.pushAnimTimer > 0) {
+        ctx.fillStyle = '#e2c799';
+        ctx.fillRect(x + 12, y - 21 + bobY, 8, 3);
+        ctx.fillStyle = '#fed7aa';
+        ctx.fillRect(x + 19, y - 21 + bobY, 3, 3);
+    }
+
+    ctx.restore();
+}
+
+// 繪製男角 (深色連帽外套、神情陰鬱、暴走時眼冒紅光並持刀)
+function drawPursuerCharacter(e) {
+    const x = Math.round(e.x);
+    const y = Math.round(e.y);
+    const isMoving = (gameState === STATE.CHASE || gameState === STATE.COMPLY_WALK);
+    const runSpeed = gameState === STATE.CHASE ? 26 : 14;
+    const runCycle = isMoving ? Math.sin(animTimer * runSpeed) : 0;
+    const bobY = isMoving ? Math.abs(Math.cos(animTimer * runSpeed)) * 2 : 0;
+
+    // 若被障礙物絆倒，身體傾斜
+    const stumbleTilt = e.stumbleTimer > 0 ? 5 : 0;
+
+    ctx.save();
+    // 腳底陰影
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(x + 2, GROUND_Y - 1, 14, 3);
+
+    // 雙腿
+    ctx.fillStyle = '#090a0f';
+    const legOffset = Math.round(runCycle * 5);
+    ctx.fillRect(x + 5 + legOffset, y - 11, 4, 11);
+    ctx.fillRect(x + 9 - legOffset, y - 11, 4, 11);
+
+    // 深灰黑色連帽外套
+    ctx.fillStyle = '#1e2430';
+    ctx.fillRect(x + 3 + stumbleTilt, y - 26 + bobY, 12, 16);
+
+    // 連帽與陰暗臉部
+    ctx.fillStyle = '#151922';
+    ctx.fillRect(x + 3 + stumbleTilt, y - 35 + bobY, 12, 10);
+    ctx.fillStyle = '#d6b49c';
+    ctx.fillRect(x + 7 + stumbleTilt, y - 32 + bobY, 7, 7);
+
+    // 眼神 (平時陰鬱黑眼，暴走追殺時發出凶狠紅光！)
+    if (e.isAngry) {
+        ctx.fillStyle = '#ef4444';
+        ctx.fillRect(x + 11 + stumbleTilt, y - 30 + bobY, 3, 2);
+    } else {
+        ctx.fillStyle = '#090a0f';
+        ctx.fillRect(x + 11 + stumbleTilt, y - 30 + bobY, 2, 2);
+    }
+
+    // 手臂與反光利刃 (暴走狀態)
+    if (e.hasKnife) {
+        const armSwing = Math.round(runCycle * 3);
+        ctx.fillStyle = '#1e2430';
+        ctx.fillRect(x + 12 + stumbleTilt, y - 22 + bobY + armSwing, 6, 4);
+        // 銀白反光刀刃
+        ctx.fillStyle = '#f8fafc';
+        ctx.fillRect(x + 18 + stumbleTilt, y - 22 + bobY + armSwing, 8, 2);
+        ctx.fillStyle = '#ef4444';
+        ctx.fillRect(x + 24 + stumbleTilt, y - 22 + bobY + armSwing, 2, 2);
+    }
+
+    ctx.restore();
+}
+
+// 繪製塵土粒子與浮動提示字
+function drawParticlesAndTexts() {
+    for (const p of particles) {
+        ctx.fillStyle = p.color;
+        ctx.fillRect(Math.round(p.x), Math.round(p.y), p.size, p.size);
+    }
+
+    ctx.font = 'bold 10px "DotGothic16", "Noto Sans TC", sans-serif';
+    for (const ft of floatingTexts) {
+        ctx.fillStyle = '#090a0f';
+        ctx.fillText(ft.text, Math.round(ft.x) + 1, Math.round(ft.y) + 1);
+        ctx.fillStyle = ft.color;
+        ctx.fillText(ft.text, Math.round(ft.x), Math.round(ft.y));
+    }
+}
+
+// 主動畫迴圈
+function gameLoop(timestamp) {
+    if (!lastTime) lastTime = timestamp;
+    const dt = Math.min(0.05, (timestamp - lastTime) / 1000);
+    lastTime = timestamp;
+
+    update(dt);
+    render();
+
+    requestAnimationFrame(gameLoop);
+}
+
+// 啟動遊戲渲染迴圈
+window.onload = function() {
+    resizeCanvas();
+    requestAnimationFrame(gameLoop);
+};
+</script>
+</body>
+</html>
